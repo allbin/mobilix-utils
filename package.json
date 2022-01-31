@@ -35,7 +35,8 @@
     "@allbin/mobilix-api-client": "0.20.0",
     "@babel/core": "^7.15.5",
     "@babel/preset-env": "^7.15.6",
-    "@babel/preset-typescript": "^7.15.0"
+    "@babel/preset-typescript": "^7.15.0",
+    "luxon-jest-matchers": "0.1.14"
   },
   "dependencies": {
     "luxon": "^2.0.2"

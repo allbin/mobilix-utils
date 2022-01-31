@@ -6,6 +6,7 @@ const config: Config.InitialOptions = {
     '**/__tests__/**/*.+(ts|tsx|js)',
     '**/?(*.)+(spec|test).+(ts|tsx|js)',
   ],
+  setupFilesAfterEnv: ['<rootDir>/src/setupTests.ts', 'luxon-jest-matchers']
 };
 
 export default config;
