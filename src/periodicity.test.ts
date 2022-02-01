@@ -57,9 +57,6 @@ describe('getPeriodicityPeriods', () => {
           0,
           now,
         );
-        // console.log(
-        //   periods.map((p) => p.interval.toISO() + ' - ' + p.occurrence.toISO()),
-        // );
         expect(periods).toHaveLength(expectedPeriods.length);
         expect(periods[0].interval).toEqualInterval(expectedPeriods[0]);
         expect(periods[1].interval).toEqualInterval(expectedPeriods[1]);
@@ -81,24 +78,22 @@ describe('getPeriodicityPeriods', () => {
         const { activePeriodIndex, periods } = getPeriodicityPeriods(
           {
             type: 'yearly',
-            occurrences: [{ month: 12, date: 20 }, { month: 1, date: 10 }],
+            occurrences: [
+              { month: 12, date: 20 },
+              { month: 1, date: 10 },
+            ],
           },
           25,
           0,
           1,
           now,
         );
-        // console.log(
-        //   periods.map((p) => p.interval.toISO() + ' - ' + p.occurrence.toISO()),
-        // );
         expect(periods).toHaveLength(expectedPeriods.length);
         expect(periods[0].interval).toEqualInterval(expectedPeriods[0]);
         expect(periods[1].interval).toEqualInterval(expectedPeriods[1]);
         expect(activePeriodIndex).toBe(0);
         expect(periods[activePeriodIndex].occurrence).toEqualDateTime(
-          DateTime.fromObject({ year: 2023, month: 1, day: 10 }).endOf(
-            'day',
-          ),
+          DateTime.fromObject({ year: 2023, month: 1, day: 10 }).endOf('day'),
         );
       });
     });

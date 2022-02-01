@@ -1,0 +1,20 @@
+{
+  "editor.tabSize": 2,
+  "eslint.lintTask.enable": true,
+  "editor.defaultFormatter": "dbaeumer.vscode-eslint",
+  "editor.formatOnSave": true,
+  "eslint.alwaysShowStatus": true,
+  "editor.codeActionsOnSave": {
+    "source.fixAll.eslint": true
+  },
+  "eslint.validate": [
+    "javascript",
+    "typescript"
+  ],
+  "typescript.tsdk": "node_modules/typescript/lib",
+  "search.exclude": {
+    "package-lock.json": true,
+    "package.json": true
+  },
+  "eslint.lintTask.options": ". --cache --cache-location .eslintcache"
+}

@@ -6,6 +6,18 @@ import { DateTime, Interval, DurationLike } from 'luxon';
 
 const sortDates = (a: DateTime, b: DateTime): number => (a > b ? 1 : -1);
 
+export interface PeriodicityPeriod {
+  /** Start and end of period. */
+  interval: import('luxon').Interval;
+  /** Breaking point for the period. */
+  occurrence: import('luxon').DateTime;
+}
+export interface PeriodicityPeriods {
+  /** Sorted array of periods. */
+  periods: PeriodicityPeriod[];
+  activePeriodIndex: number;
+}
+
 const getDurationFromPeriodicityType = (
   type: ApiPeriodicity['type'],
   amount = 1,
@@ -121,7 +133,8 @@ export const getPeriodicityPeriods = (
       if (!p.interval.isValid) {
         console.log('occ', occ.toISO());
         throw new Error(
-          `Invalid interval created: '${beginning.isValid ? beginning.toISO() : 'invalid start'
+          `Invalid interval created: '${
+            beginning.isValid ? beginning.toISO() : 'invalid start'
           }' to '${end.isValid ? end.toISO() : 'invalid end'}'`,
         );
       }
@@ -142,25 +155,13 @@ export const getPeriodicityPeriods = (
 
   const periods: PeriodicityPeriod[] = [];
 
-  // console.log(
-  //   'extendedBeginnings.length - nowBeginningIndex',
-  //   extendedBeginnings.length,
-  //   ' - ',
-  //   nowBeginningIndex,
-  // );
-
   for (let i = 1; i <= previousCount; i++) {
     const p = extendedPeriods[nowBeginningIndex - i];
-    // const beginning = extendedPeriods[nowBeginningIndex - i];
-    // const end = extendedPeriods[nowBeginningIndex - i + 1];
     periods.unshift(p);
   }
 
   for (let i = 0; i <= nextCount; i++) {
     const p = extendedPeriods[nowBeginningIndex + i];
-    // const beginning = extendedPeriods[nowBeginningIndex + i];
-    // const end = extendedPeriods[nowBeginningIndex + i + 1];
-    // console.log('beginning, end, i', beginning, end, i);
     periods.push(p);
   }
 
