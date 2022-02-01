@@ -71,6 +71,37 @@ describe('getPeriodicityPeriods', () => {
         );
       });
     });
+    describe('multiple occurrences', () => {
+      it('start and end of year, duration crossover', () => {
+        const now = DateTime.fromObject({ year: 2022, month: 12, day: 25 });
+        const expectedPeriods = [
+          Interval.fromISO('2022-12-20T00:00:00.000Z/2023-11-25T00:00:00.000Z'),
+          Interval.fromISO('2023-11-25T00:00:00.000Z/2023-12-20T00:00:00.000Z'),
+        ];
+        const { activePeriodIndex, periods } = getPeriodicityPeriods(
+          {
+            type: 'yearly',
+            occurrences: [{ month: 12, date: 20 }, { month: 1, date: 10 }],
+          },
+          25,
+          0,
+          1,
+          now,
+        );
+        // console.log(
+        //   periods.map((p) => p.interval.toISO() + ' - ' + p.occurrence.toISO()),
+        // );
+        expect(periods).toHaveLength(expectedPeriods.length);
+        expect(periods[0].interval).toEqualInterval(expectedPeriods[0]);
+        expect(periods[1].interval).toEqualInterval(expectedPeriods[1]);
+        expect(activePeriodIndex).toBe(0);
+        expect(periods[activePeriodIndex].occurrence).toEqualDateTime(
+          DateTime.fromObject({ year: 2023, month: 1, day: 10 }).endOf(
+            'day',
+          ),
+        );
+      });
+    });
   });
   describe('monthly periodicity', () => {
     describe('single occurrences', () => {
@@ -104,7 +135,7 @@ describe('getPeriodicityPeriods', () => {
         );
       });
     });
-    describe('two occurrences', () => {
+    describe('multiple occurrences', () => {
       it('beginning and end, duration crossover', () => {
         const now = DateTime.fromISO('2022-07-01T00:00:00.000Z');
         const expectedPeriods = [
