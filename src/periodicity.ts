@@ -186,6 +186,7 @@ export const getPeriodicityPeriods = (
 
 /**
  * Utility for checking the status of a PeriodicityPeriod based on provided CheckIns.
+ *
  * NOTE: If checkIns are not ascendingly sorted set 'sortCheckIns' to true.
  */
 export const getPeriodStatus = (
