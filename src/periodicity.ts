@@ -18,6 +18,19 @@ export interface PeriodicityPeriods {
   activePeriodIndex: number;
 }
 
+export type PeriodicityPeriodExecutionStatus = 'late' | 'missed' | 'on_time';
+export type PeriodicityPeriodRemark = NonNullable<
+  import('@allbin/mobilix-api-client').ApiCheckIn['result']
+>;
+export interface PeriodicityPeriodStatus {
+  executed: PeriodicityPeriodExecutionStatus;
+  remarks: PeriodicityPeriodRemark[];
+}
+export interface CheckIn
+  extends Pick<import('@allbin/mobilix-api-client').ApiCheckIn, 'result'> {
+  timestamp: DateTime;
+}
+
 const getDurationFromPeriodicityType = (
   type: ApiPeriodicity['type'],
   amount = 1,
@@ -168,5 +181,44 @@ export const getPeriodicityPeriods = (
   return {
     periods,
     activePeriodIndex: previousCount,
+  };
+};
+
+/**
+ * Utility for checking the status of a PeriodicityPeriod based on provided CheckIns.
+ * NOTE: If checkIns are not ascendingly sorted set 'sortCheckIns' to true.
+ */
+export const getPeriodStatus = (
+  period: PeriodicityPeriod,
+  checkIns: CheckIn[],
+  /** If the check-ins are not sorted ascendingly set this to true. Defaults to false. */
+  sortCheckIns?: boolean,
+): PeriodicityPeriodStatus => {
+  const remarks: PeriodicityPeriodRemark[] = [];
+  let executed: PeriodicityPeriodExecutionStatus | undefined = undefined;
+
+  /** Reverse sorted. */
+  const sortedCheckIns = sortCheckIns
+    ? [...checkIns].sort((a, b) => (a.timestamp < b.timestamp ? 1 : -1))
+    : [...checkIns].reverse();
+
+  for (const checkIn of sortedCheckIns) {
+    if (period.interval.contains(checkIn.timestamp)) {
+      executed =
+        period.occurrence < checkIn.timestamp && executed !== 'on_time'
+          ? 'late'
+          : 'on_time';
+      if (checkIn.result) {
+        remarks.push(checkIn.result);
+      }
+    } else if (executed !== undefined) {
+      //We have previously set execution flag; we must have passed any valid dates.
+      break;
+    }
+  }
+
+  return {
+    executed: executed || 'missed',
+    remarks,
   };
 };

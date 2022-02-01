@@ -1,5 +1,11 @@
 import { DateTime, Interval, Settings } from 'luxon';
-import { getPeriodicityPeriods, printPeriod } from './periodicity';
+import {
+  getPeriodicityPeriods,
+  getPeriodStatus,
+  PeriodicityPeriod,
+  CheckIn,
+  printPeriod,
+} from './periodicity';
 const defaultZone = Settings.defaultZone;
 beforeAll(() => {
   Settings.defaultZone = 'utc';
@@ -8,7 +14,7 @@ afterAll(() => {
   Settings.defaultZone = defaultZone;
 });
 
-describe('getPeriodicityPeriods', () => {
+describe('getPeriodicityPeriods():', () => {
   describe('yearly periodicity', () => {
     describe('single occurrence', () => {
       it('middle of a month, no crossover', () => {
@@ -159,5 +165,42 @@ describe('getPeriodicityPeriods', () => {
         );
       });
     });
+  });
+});
+
+describe('getPeriodStatus():', () => {
+  it('returns executed on_time', () => {
+    const period: PeriodicityPeriod = {
+      interval: Interval.fromISO(
+        '2021-05-31T00:00:00.000Z/2022-05-31T00:00:00.000Z',
+      ),
+      occurrence: DateTime.fromISO('2021-06-30T00:00:00.000Z'),
+    };
+    const checkIns: CheckIn[] = [
+      { timestamp: DateTime.fromISO('2021-06-10T00:00:00.000Z') },
+    ];
+    const status = getPeriodStatus(period, checkIns);
+
+    expect(status.executed).toBe('on_time');
+    expect(status.remarks.length).toBe(0);
+  });
+  it('returns executed late, with remark', () => {
+    const period: PeriodicityPeriod = {
+      interval: Interval.fromISO(
+        '2021-05-31T00:00:00.000Z/2022-05-31T00:00:00.000Z',
+      ),
+      occurrence: DateTime.fromISO('2021-06-30T00:00:00.000Z'),
+    };
+    const checkIns: CheckIn[] = [
+      {
+        timestamp: DateTime.fromISO('2021-08-10T00:00:00.000Z'),
+        result: 'workorder',
+      },
+    ];
+    const status = getPeriodStatus(period, checkIns);
+
+    expect(status.executed).toBe('late');
+    expect(status.remarks.length).toBe(1);
+    expect(status.remarks[0]).toBe('workorder');
   });
 });
