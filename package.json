@@ -1,13 +1,16 @@
 {
-  "name": "mobilix-utils",
+  "name": "@allbin/mobilix-utils",
   "version": "1.0.0",
   "description": "",
   "main": "build/index.js",
+  "types": "lib/index.d.ts",
   "scripts": {
-    "build": "rm -rf lib && tsc",
+    "prebuild": "npm run lint",
+    "build": "rm -rf lib && tsc -p tsconfig.build.json",
     "test": "jest",
     "lint": "eslint --ext .ts src",
-    "lint:fix": "eslint --fix src"
+    "lint:fix": "eslint --fix src",
+    "prepublishOnly": "npm run build && npm run test"
   },
   "repository": {
     "type": "git",
