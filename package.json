@@ -1,6 +1,6 @@
 {
   "name": "@allbin/mobilix-utils",
-  "version": "1.0.0",
+  "version": "1.0.1-dev",
   "description": "",
   "main": "build/index.js",
   "types": "lib/index.d.ts",
@@ -17,6 +17,9 @@
     "url": "git+https://github.com/allbin/mobilix-utils.git"
   },
   "author": "",
+  "publishConfig": {
+    "access": "public"
+  },
   "license": "ISC",
   "bugs": {
     "url": "https://github.com/allbin/mobilix-utils/issues"
