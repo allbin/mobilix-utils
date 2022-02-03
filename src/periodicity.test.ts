@@ -1,11 +1,11 @@
 import { DateTime, Interval, Settings } from 'luxon';
 import {
+  CheckIn,
   getPeriodicityPeriods,
   getPeriodStatus,
   PeriodicityPeriod,
-  CheckIn,
-  printPeriod,
 } from './periodicity';
+
 const defaultZone = Settings.defaultZone;
 beforeAll(() => {
   Settings.defaultZone = 'utc';
@@ -166,6 +166,55 @@ describe('getPeriodicityPeriods():', () => {
       });
     });
   });
+
+  describe('edge-case parameters', () => {
+    it('should return single day intervals if duration is zero', () => {
+      const { periods, activePeriodIndex } = getPeriodicityPeriods(
+        { type: 'monthly', occurrences: [{ date: 15 }] },
+        0,
+        1,
+        0,
+        DateTime.fromISO('2022-06-15T00:00:00.000Z'),
+      );
+
+      expect(periods).toHaveLength(2);
+      expect(activePeriodIndex).toBe(1);
+
+      expect(periods[0].interval.start.toISO()).toEqual(
+        '2022-05-15T00:00:00.000Z',
+      );
+      expect(periods[0].interval.end.toISO()).toEqual(
+        '2022-06-15T00:00:00.000Z',
+      );
+
+      expect(periods[1].interval.start.toISO()).toEqual(
+        '2022-06-15T00:00:00.000Z',
+      );
+      expect(periods[1].interval.end.toISO()).toEqual(
+        '2022-07-15T00:00:00.000Z',
+      );
+    });
+
+    it('should return a single period if both count params are zero', () => {
+      const { periods, activePeriodIndex } = getPeriodicityPeriods(
+        { type: 'monthly', occurrences: [{ date: 15 }] },
+        7,
+        0,
+        0,
+        DateTime.fromISO('2022-06-10T00:00:00.000Z'),
+      );
+
+      expect(periods).toHaveLength(1);
+      expect(activePeriodIndex).toBe(0);
+
+      expect(periods[0].interval.start.toISO()).toEqual(
+        '2022-06-08T00:00:00.000Z',
+      );
+      expect(periods[0].interval.end.toISO()).toEqual(
+        '2022-07-08T00:00:00.000Z',
+      );
+    });
+  });
 });
 
 describe('getPeriodStatus():', () => {
@@ -184,6 +233,7 @@ describe('getPeriodStatus():', () => {
     expect(status.executed).toBe('on_time');
     expect(status.remarks.length).toBe(0);
   });
+
   it('returns executed late, with remark', () => {
     const period: PeriodicityPeriod = {
       interval: Interval.fromISO(
@@ -203,4 +253,55 @@ describe('getPeriodStatus():', () => {
     expect(status.remarks.length).toBe(1);
     expect(status.remarks[0]).toBe('workorder');
   });
+
+  it('remark order matches incoming checkins', () => {
+    const status = getPeriodStatus(
+      {
+        interval: Interval.fromISO(
+          '2022-06-01T00:00:00.000Z/2022-07-01T00:00:00.000Z',
+        ),
+        occurrence: DateTime.fromISO('2022-06-15T00:00:00.000Z'),
+      },
+      [
+        {
+          timestamp: DateTime.fromISO('2022-01-01T00:00:00.000Z'),
+          result: 'error_report',
+        },
+        {
+          timestamp: DateTime.fromISO('2022-06-30T00:00:00.000Z'),
+          result: 'workorder',
+        },
+        {
+          timestamp: DateTime.fromISO('2022-06-20T00:00:00.000Z'),
+        },
+        {
+          timestamp: DateTime.fromISO('2022-06-10T00:00:00.000Z'),
+          result: 'police_report',
+        },
+        {
+          timestamp: DateTime.fromISO('2022-12-01T00:00:00.000Z'),
+          result: 'error_report',
+        },
+      ],
+    );
+
+    expect(status.remarks).toHaveLength(2);
+    expect(status.remarks[0]).toBe('workorder');
+    expect(status.remarks[1]).toBe('police_report');
+    expect(status.executed).toBe('on_time');
+  });
+
+  // it('what happens with no checkins yet', () => {
+  //   const status = getPeriodStatus(
+  //     {
+  //       interval: Interval.fromISO(
+  //         '2021-05-31T00:00:00.000Z/2022-05-31T00:00:00.000Z',
+  //       ),
+  //       occurrence: DateTime.fromISO('2021-06-30T00:00:00.000Z'),
+  //     },
+  //     [],
+  //   );
+  //   expect(status.remarks).toHaveLength(0);
+  //   expect(status.executed).toBe('missed');
+  // });
 });

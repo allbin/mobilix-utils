@@ -186,40 +186,36 @@ export const getPeriodicityPeriods = (
 
 /**
  * Utility for checking the status of a PeriodicityPeriod based on provided CheckIns.
- *
- * NOTE: If checkIns are not ascendingly sorted set 'sortCheckIns' to true.
  */
 export const getPeriodStatus = (
   period: PeriodicityPeriod,
   checkIns: CheckIn[],
-  /** If the check-ins are not sorted ascendingly set this to true. Defaults to false. */
-  sortCheckIns?: boolean,
 ): PeriodicityPeriodStatus => {
-  const remarks: PeriodicityPeriodRemark[] = [];
-  let executed: PeriodicityPeriodExecutionStatus | undefined = undefined;
+  const filteredCheckIns = checkIns.filter((checkIn) =>
+    period.interval.contains(checkIn.timestamp),
+  );
 
-  /** Reverse sorted. */
-  const sortedCheckIns = sortCheckIns
-    ? [...checkIns].sort((a, b) => (a.timestamp < b.timestamp ? 1 : -1))
-    : [...checkIns].reverse();
-
-  for (const checkIn of sortedCheckIns) {
-    if (period.interval.contains(checkIn.timestamp)) {
-      executed =
-        period.occurrence < checkIn.timestamp && executed !== 'on_time'
-          ? 'late'
-          : 'on_time';
-      if (checkIn.result) {
-        remarks.push(checkIn.result);
-      }
-    } else if (executed !== undefined) {
-      //We have previously set execution flag; we must have passed any valid dates.
-      break;
-    }
+  if (filteredCheckIns.length === 0) {
+    return {
+      remarks: [],
+      executed: 'missed',
+    };
   }
 
+  const executed = filteredCheckIns.some(
+    (checkIn) => checkIn.timestamp <= period.occurrence,
+  )
+    ? 'on_time'
+    : 'late';
+
+  const remarks = filteredCheckIns
+    .filter((checkIn) => checkIn.result !== undefined)
+    .map<PeriodicityPeriodRemark>(
+      (checkIn) => checkIn.result as PeriodicityPeriodRemark,
+    );
+
   return {
-    executed: executed || 'missed',
+    executed,
     remarks,
   };
 };
