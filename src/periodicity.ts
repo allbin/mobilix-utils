@@ -122,7 +122,7 @@ export const getPeriodicityPeriods = (
       let beginning = occ.minus({ days: duration });
       const end = occ;
       const previous = extendedPeriods[extendedPeriods.length - 1];
-      if (previous) {
+      if (previous && previous.interval.end && previous.interval.start) {
         if (previous.interval.end > beginning) {
           //Duration is so long we are trying to begin before the previous end, clip.
           beginning = previous.interval.end;
@@ -147,8 +147,8 @@ export const getPeriodicityPeriods = (
         console.log('occ', occ.toISO());
         throw new Error(
           `Invalid interval created: '${
-            beginning.isValid ? beginning.toISO() : 'invalid start'
-          }' to '${end.isValid ? end.toISO() : 'invalid end'}'`,
+            beginning.toISO() ?? 'invalid start'
+          }' to '${end.toISO() ?? 'invalid end'}'`,
         );
       }
       // console.log(printPeriod(p));
@@ -160,7 +160,7 @@ export const getPeriodicityPeriods = (
 
   for (const p of extendedPeriods) {
     // console.log('beg', beginning.toISO());
-    if (p.interval.start > now) {
+    if (p.interval.start && p.interval.start > now) {
       break;
     }
     nowBeginningIndex += 1;
