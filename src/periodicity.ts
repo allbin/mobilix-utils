@@ -2,9 +2,15 @@ import {
   ApiPeriodicity,
   ApiPeriodicityYearlyOccurrence,
 } from '@allbin/mobilix-api-client';
-import { DateTime, Interval, DurationLike } from 'luxon';
+import { DateTime, Interval, DurationLike, Zone } from 'luxon';
 
 const sortDates = (a: DateTime, b: DateTime): number => (a > b ? 1 : -1);
+
+/** Zone every period boundary is computed in unless the caller passes one. */
+export const DEFAULT_PERIODICITY_ZONE = 'Europe/Stockholm';
+
+/** Result for a plan without a single usable occurrence: nothing to render, no active period. */
+const NO_PERIODS: PeriodicityPeriods = { periods: [], activePeriodIndex: -1 };
 
 export interface PeriodicityPeriod {
   /** Start and end of period. */
@@ -15,6 +21,7 @@ export interface PeriodicityPeriod {
 export interface PeriodicityPeriods {
   /** Sorted array of periods. */
   periods: PeriodicityPeriod[];
+  /** Index of the period containing "now", or -1 when the plan has no usable occurrences. */
   activePeriodIndex: number;
 }
 
@@ -49,6 +56,19 @@ const getDurationFromPeriodicityType = (
   }
 };
 
+/**
+ * Start of the occurrence day in the given month. A day beyond the end of the
+ * month is clamped to the last day (31 means "last day of month", Feb 29 is
+ * Feb 28 outside leap years). Returns an invalid DateTime when month or date
+ * cannot form a date at all (month 0 or 13, date 0).
+ */
+const occurrenceInMonth = (monthStart: DateTime, date: number): DateTime => {
+  if (!monthStart.isValid || !Number.isInteger(date) || date < 1) {
+    return DateTime.invalid('unusable occurrence');
+  }
+  return monthStart.set({ day: Math.min(date, monthStart.daysInMonth ?? 0) });
+};
+
 export const printPeriod = (p: PeriodicityPeriod): string => {
   const end =
     p.interval.end && p.interval.end.isValid
@@ -71,14 +91,21 @@ export const getPeriodicityPeriods = (
   previousCount = 1,
   /** The number of periods to calculate after the period containing "now". 0 will return only period containing "now". */
   nextCount = 0,
-  /** Defaults to DateTime.now. */
+  /** Defaults to DateTime.now. Converted into `zone` before use. */
   now?: DateTime,
+  /** Zone the period boundaries (midnights) are computed in. Never the device zone. */
+  zone: string | Zone = DEFAULT_PERIODICITY_ZONE,
 ): PeriodicityPeriods => {
-  now = now || DateTime.now();
+  now = (now || DateTime.now()).setZone(zone);
+  if (!now.isValid) {
+    throw new Error("Unsupported zone '" + String(zone) + "'.");
+  }
 
-  const plannedOccurrences: DateTime[] = [];
   const extendedPeriods: PeriodicityPeriod[] = [];
   const periodicityType = periodicity.type;
+  if (periodicityType !== 'yearly' && periodicityType !== 'monthly') {
+    return NO_PERIODS;
+  }
 
   /** repeats; an array of values from -previousCount to +nextCount with a 0 in between. */
   const repeats = [0];
@@ -89,36 +116,40 @@ export const getPeriodicityPeriods = (
     repeats.push(i);
   }
 
+  /** First day of the month each occurrence falls in for offset 0, paired with its date. */
+  const anchors: { monthStart: DateTime; date: number }[] = [];
   for (const occurrence of periodicity.occurrences) {
-    const year = now.year;
     const month =
       periodicityType === 'yearly'
         ? (occurrence as ApiPeriodicityYearlyOccurrence).month
         : now.month;
-    plannedOccurrences.push(
-      DateTime.fromObject(
-        {
-          year,
-          month: month,
-          day: occurrence.date,
-        },
-        { zone: now.zone },
-      ).startOf('day'),
+    const monthStart = DateTime.fromObject(
+      { year: now.year, month, day: 1 },
+      { zone: now.zone },
     );
+    if (occurrenceInMonth(monthStart, occurrence.date).isValid) {
+      anchors.push({ monthStart, date: occurrence.date });
+    }
   }
 
-  if (plannedOccurrences.length === 0) {
-    throw new Error('Invalid/missing occurrences specified in plan.');
+  if (anchors.length === 0) {
+    return NO_PERIODS;
   }
-
-  plannedOccurrences.sort(sortDates);
 
   for (const offset of repeats) {
-    for (const occurrence of plannedOccurrences) {
-      //Loop all repeats to add a range of occurrences guaranteed to contain the requested number of occurrences.
-      const occ = occurrence.plus(
-        getDurationFromPeriodicityType(periodicityType, offset),
-      );
+    //Loop all repeats to add a range of occurrences guaranteed to contain the requested number of occurrences.
+    const occurrences = anchors
+      .map(({ monthStart, date }) =>
+        occurrenceInMonth(
+          monthStart.plus(
+            getDurationFromPeriodicityType(periodicityType, offset),
+          ),
+          date,
+        ),
+      )
+      .sort(sortDates);
+
+    for (const occ of occurrences) {
       let beginning = occ.minus({ days: duration });
       const end = occ;
       const previous = extendedPeriods[extendedPeriods.length - 1];
@@ -138,28 +169,16 @@ export const getPeriodicityPeriods = (
         //period whose length is the actual length, all other periods will be clipped.
       }
 
-      const p = {
+      extendedPeriods.push({
         interval: Interval.fromDateTimes(beginning, end),
         occurrence: occ.endOf('day'),
-      };
-
-      if (!p.interval.isValid) {
-        console.log('occ', occ.toISO());
-        throw new Error(
-          `Invalid interval created: '${
-            beginning.toISO() ?? 'invalid start'
-          }' to '${end.toISO() ?? 'invalid end'}'`,
-        );
-      }
-      // console.log(printPeriod(p));
-      extendedPeriods.push(p);
+      });
     }
   }
 
   let nowBeginningIndex = -1;
 
   for (const p of extendedPeriods) {
-    // console.log('beg', beginning.toISO());
     if (p.interval.start && p.interval.start > now) {
       break;
     }
@@ -186,13 +205,23 @@ export const getPeriodicityPeriods = (
 
 /**
  * Utility for checking the status of a PeriodicityPeriod based on provided CheckIns.
+ *
+ * A check-in belongs to the period when it lies inside the interval or on the
+ * occurrence day itself. The interval normally contains the occurrence day,
+ * but when the check-in window is longer than the gap between occurrences it
+ * ends at the start of that day; a due-day check-in is on time either way.
  */
 export const getPeriodStatus = (
   period: PeriodicityPeriod,
   checkIns: CheckIn[],
 ): PeriodicityPeriodStatus => {
-  const filteredCheckIns = checkIns.filter((checkIn) =>
-    period.interval.contains(checkIn.timestamp),
+  const { start } = period.interval;
+  const filteredCheckIns = checkIns.filter(
+    (checkIn) =>
+      period.interval.contains(checkIn.timestamp) ||
+      (start !== null &&
+        start <= checkIn.timestamp &&
+        checkIn.timestamp <= period.occurrence),
   );
 
   if (filteredCheckIns.length === 0) {
