@@ -232,9 +232,11 @@ export const getPeriodicityPeriods = (
  * Utility for checking the status of a PeriodicityPeriod based on provided CheckIns.
  *
  * A check-in belongs to the period when it lies inside the interval or on the
- * occurrence day itself. The interval normally contains the occurrence day,
- * but when the check-in window is longer than the gap between occurrences it
- * ends at the start of that day; a due-day check-in is on time either way.
+ * occurrence day itself. getPeriodicityPeriods extends each interval to the
+ * opening of the next window, so it normally contains the occurrence day; only
+ * when the window is longer than the gap between occurrences is the interval
+ * clipped to end at the start of that day. A due-day check-in is on time either
+ * way, and in the clipped case it also lies in the next period's interval.
  */
 export const getPeriodStatus = (
   period: PeriodicityPeriod,
