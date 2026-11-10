@@ -59,12 +59,6 @@ const getDurationFromPeriodicityType = (
   }
 };
 
-/**
- * Start of the occurrence day in the given month. A day beyond the end of the
- * month is clamped to the last day (31 means "last day of month", Feb 29 is
- * Feb 28 outside leap years). Returns an invalid DateTime when month or date
- * cannot form a date at all (month 0 or 13, date 0).
- */
 /** Integer from a stored value; numbers may arrive as strings from old plans. */
 const storedInteger = (value: unknown): number => {
   const n =
@@ -74,6 +68,12 @@ const storedInteger = (value: unknown): number => {
   return Number.isInteger(n) ? n : NaN;
 };
 
+/**
+ * Start of the occurrence day in the given month. A day beyond the end of the
+ * month is clamped to the last day (31 means "last day of month", Feb 29 is
+ * Feb 28 outside leap years). Returns an invalid DateTime when month or date
+ * cannot form a date at all (month 0 or 13, date 0).
+ */
 const occurrenceInMonth = (monthStart: DateTime, date: unknown): DateTime => {
   const day = storedInteger(date);
   if (!monthStart.isValid || Number.isNaN(day) || day < 1) {
