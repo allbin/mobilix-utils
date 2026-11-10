@@ -10,7 +10,10 @@ const sortDates = (a: DateTime, b: DateTime): number => (a > b ? 1 : -1);
 export const DEFAULT_PERIODICITY_ZONE = 'Europe/Stockholm';
 
 /** Result for a plan without a single usable occurrence: nothing to render, no active period. */
-const NO_PERIODS: PeriodicityPeriods = { periods: [], activePeriodIndex: -1 };
+const noPeriods = (): PeriodicityPeriods => ({
+  periods: [],
+  activePeriodIndex: -1,
+});
 
 export interface PeriodicityPeriod {
   /** Start and end of period. */
@@ -104,7 +107,7 @@ export const getPeriodicityPeriods = (
   const extendedPeriods: PeriodicityPeriod[] = [];
   const periodicityType = periodicity.type;
   if (periodicityType !== 'yearly' && periodicityType !== 'monthly') {
-    return NO_PERIODS;
+    return noPeriods();
   }
 
   /** repeats; an array of values from -previousCount to +nextCount with a 0 in between. */
@@ -118,13 +121,17 @@ export const getPeriodicityPeriods = (
 
   /** First day of the month each occurrence falls in for offset 0, paired with its date. */
   const anchors: { monthStart: DateTime; date: number }[] = [];
-  for (const occurrence of periodicity.occurrences) {
-    const month =
+  for (const occurrence of periodicity.occurrences ?? []) {
+    const month: unknown =
       periodicityType === 'yearly'
         ? (occurrence as ApiPeriodicityYearlyOccurrence).month
         : now.month;
+    if (!Number.isInteger(month)) {
+      // Stored plans predate the API validators; fromObject throws on non-numeric units.
+      continue;
+    }
     const monthStart = DateTime.fromObject(
-      { year: now.year, month, day: 1 },
+      { year: now.year, month: month as number, day: 1 },
       { zone: now.zone },
     );
     if (occurrenceInMonth(monthStart, occurrence.date).isValid) {
@@ -133,7 +140,7 @@ export const getPeriodicityPeriods = (
   }
 
   if (anchors.length === 0) {
-    return NO_PERIODS;
+    return noPeriods();
   }
 
   for (const offset of repeats) {
@@ -150,7 +157,8 @@ export const getPeriodicityPeriods = (
       .sort(sortDates);
 
     for (const occ of occurrences) {
-      let beginning = occ.minus({ days: duration });
+      // startOf keeps the boundary at midnight in zones where DST jumps at 00:00.
+      let beginning = occ.minus({ days: duration }).startOf('day');
       const end = occ;
       const previous = extendedPeriods[extendedPeriods.length - 1];
       if (previous && previous.interval.end && previous.interval.start) {

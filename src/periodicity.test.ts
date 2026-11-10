@@ -313,7 +313,7 @@ describe('getPeriodicityPeriods():', () => {
         5,
         1,
         0,
-        DateTime.fromISO('2026-02-10T10:00:00.000Z'),
+        DateTime.fromISO('2026-02-28T12:00:00.000Z'),
         'utc',
       );
 
@@ -321,13 +321,15 @@ describe('getPeriodicityPeriods():', () => {
       expect(periods).toHaveLength(2);
       for (const p of periods) {
         expect(p.interval.isValid).toBe(true);
-        expect(p.occurrence.isValid).toBe(true);
+        expect(p.occurrence).toEqualDateTime(
+          DateTime.fromISO('2026-02-28T00:00:00.000Z').endOf('day'),
+        );
       }
-      expect(periods[0].occurrence).toEqualDateTime(
-        DateTime.fromISO('2026-01-30T00:00:00.000Z').endOf('day'),
+      expect(periods[0].interval).toEqualInterval(
+        Interval.fromISO('2026-02-23T00:00:00.000Z/2026-02-28T00:00:00.000Z'),
       );
-      expect(periods[1].occurrence).toEqualDateTime(
-        DateTime.fromISO('2026-01-31T00:00:00.000Z').endOf('day'),
+      expect(periods[1].interval).toEqualInterval(
+        Interval.fromISO('2026-02-28T00:00:00.000Z/2026-03-25T00:00:00.000Z'),
       );
     });
   });
@@ -344,6 +346,31 @@ describe('getPeriodicityPeriods():', () => {
       );
 
       expect(result).toEqual({ periods: [], activePeriodIndex: -1 });
+    });
+
+    it('missing occurrences and non-numeric months do not throw', () => {
+      const missing = getPeriodicityPeriods(
+        { type: 'monthly', occurrences: undefined as unknown as [] },
+        10,
+        1,
+        0,
+        DateTime.fromISO('2026-04-10T10:00:00.000Z'),
+        'utc',
+      );
+      expect(missing).toEqual({ periods: [], activePeriodIndex: -1 });
+
+      const textMonth = getPeriodicityPeriods(
+        {
+          type: 'yearly',
+          occurrences: [{ month: 'foo' as unknown as number, date: 1 }],
+        },
+        10,
+        1,
+        0,
+        DateTime.fromISO('2026-04-10T10:00:00.000Z'),
+        'utc',
+      );
+      expect(textMonth).toEqual({ periods: [], activePeriodIndex: -1 });
     });
 
     it('occurrences without a valid date are dropped, the rest are kept', () => {
@@ -446,6 +473,23 @@ describe('getPeriodicityPeriods():', () => {
       expect(end?.toISO()).toBe('2026-05-10T00:00:00.000Z');
       expect(periods[activePeriodIndex].occurrence.toISO()).toBe(
         '2026-04-15T23:59:59.999Z',
+      );
+    });
+
+    it('keeps boundaries at the start of day in a zone where DST jumps at midnight', () => {
+      // America/Santiago: 2019-09-08 starts at 01:00, there is no 00:00.
+      const { periods, activePeriodIndex } = getPeriodicityPeriods(
+        { type: 'monthly', occurrences: [{ date: 8 }] },
+        5,
+        0,
+        0,
+        DateTime.fromISO('2019-09-05T12:00:00.000Z'),
+        'America/Santiago',
+      );
+      const { start } = periods[activePeriodIndex].interval;
+      expect(start?.toISO()).toBe('2019-09-03T00:00:00.000-04:00');
+      expect(periods[activePeriodIndex].occurrence.toISO()).toBe(
+        '2019-09-08T23:59:59.999-03:00',
       );
     });
 
