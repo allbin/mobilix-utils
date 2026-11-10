@@ -307,30 +307,49 @@ describe('getPeriodicityPeriods():', () => {
       );
     });
 
-    it('two occurrences that clamp to the same day do not throw', () => {
+    it('two occurrences that clamp to the same day collapse into one period', () => {
       const { periods, activePeriodIndex } = getPeriodicityPeriods(
         { type: 'monthly', occurrences: [{ date: 30 }, { date: 31 }] },
         5,
         1,
-        0,
-        DateTime.fromISO('2026-02-28T12:00:00.000Z'),
+        1,
+        DateTime.fromISO('2026-02-25T12:00:00.000Z'),
         'utc',
       );
 
       expect(activePeriodIndex).toBe(1);
-      expect(periods).toHaveLength(2);
-      for (const p of periods) {
-        expect(p.interval.isValid).toBe(true);
-        expect(p.occurrence).toEqualDateTime(
-          DateTime.fromISO('2026-02-28T00:00:00.000Z').endOf('day'),
-        );
-      }
-      expect(periods[0].interval).toEqualInterval(
-        Interval.fromISO('2026-02-23T00:00:00.000Z/2026-02-28T00:00:00.000Z'),
+      expect(periods).toHaveLength(3);
+      expect(periods[0].occurrence).toEqualDateTime(
+        DateTime.fromISO('2026-01-31T00:00:00.000Z').endOf('day'),
       );
       expect(periods[1].interval).toEqualInterval(
-        Interval.fromISO('2026-02-28T00:00:00.000Z/2026-03-25T00:00:00.000Z'),
+        Interval.fromISO('2026-02-23T00:00:00.000Z/2026-03-25T00:00:00.000Z'),
       );
+      expect(periods[1].occurrence).toEqualDateTime(
+        DateTime.fromISO('2026-02-28T00:00:00.000Z').endOf('day'),
+      );
+      expect(periods[2].occurrence).toEqualDateTime(
+        DateTime.fromISO('2026-03-30T00:00:00.000Z').endOf('day'),
+      );
+    });
+
+    it('monthly occurrences keep their order across the year boundary', () => {
+      const { periods, activePeriodIndex } = getPeriodicityPeriods(
+        { type: 'monthly', occurrences: [{ date: 31 }, { date: 10 }] },
+        5,
+        2,
+        1,
+        DateTime.fromISO('2027-01-05T12:00:00.000Z'),
+        'utc',
+      );
+
+      expect(activePeriodIndex).toBe(2);
+      expect(periods.map((p) => p.occurrence.toISODate())).toEqual([
+        '2026-12-10',
+        '2026-12-31',
+        '2027-01-10',
+        '2027-01-31',
+      ]);
     });
   });
 
@@ -348,16 +367,23 @@ describe('getPeriodicityPeriods():', () => {
       expect(result).toEqual({ periods: [], activePeriodIndex: -1 });
     });
 
-    it('missing occurrences and non-numeric months do not throw', () => {
-      const missing = getPeriodicityPeriods(
-        { type: 'monthly', occurrences: undefined as unknown as [] },
-        10,
-        1,
-        0,
-        DateTime.fromISO('2026-04-10T10:00:00.000Z'),
-        'utc',
-      );
-      expect(missing).toEqual({ periods: [], activePeriodIndex: -1 });
+    it('missing, null or non-numeric occurrence data does not throw', () => {
+      const now = DateTime.fromISO('2026-04-10T10:00:00.000Z');
+      const stored = (occurrences: unknown): PeriodicityPeriods =>
+        getPeriodicityPeriods(
+          { type: 'monthly', occurrences: occurrences as [] },
+          10,
+          1,
+          0,
+          now,
+          'utc',
+        );
+      const empty = { periods: [], activePeriodIndex: -1 };
+      expect(stored(undefined)).toEqual(empty);
+      expect(stored(null)).toEqual(empty);
+      expect(stored({})).toEqual(empty);
+      expect(stored([null])).toEqual(empty);
+      expect(stored([{ date: 'x' }])).toEqual(empty);
 
       const textMonth = getPeriodicityPeriods(
         {
@@ -371,6 +397,38 @@ describe('getPeriodicityPeriods():', () => {
         'utc',
       );
       expect(textMonth).toEqual({ periods: [], activePeriodIndex: -1 });
+    });
+
+    it('numeric strings from old stored plans still work', () => {
+      const now = DateTime.fromISO('2026-04-10T10:00:00.000Z');
+      const asStrings = getPeriodicityPeriods(
+        {
+          type: 'yearly',
+          occurrences: [
+            {
+              month: '6' as unknown as number,
+              date: '15' as unknown as number,
+            },
+          ],
+        },
+        10,
+        1,
+        0,
+        now,
+        'utc',
+      );
+      const asNumbers = getPeriodicityPeriods(
+        { type: 'yearly', occurrences: [{ month: 6, date: 15 }] },
+        10,
+        1,
+        0,
+        now,
+        'utc',
+      );
+      expect(asStrings.periods).toHaveLength(asNumbers.periods.length);
+      asStrings.periods.forEach((p, i) => {
+        expect(p.interval).toEqualInterval(asNumbers.periods[i].interval);
+      });
     });
 
     it('occurrences without a valid date are dropped, the rest are kept', () => {
@@ -491,6 +549,12 @@ describe('getPeriodicityPeriods():', () => {
       expect(periods[activePeriodIndex].occurrence.toISO()).toBe(
         '2019-09-08T23:59:59.999-03:00',
       );
+    });
+
+    it('throws on an invalid now with a message naming now, not the zone', () => {
+      expect(() =>
+        getPeriodicityPeriods(plan, 5, 0, 0, DateTime.invalid('test')),
+      ).toThrow(/Invalid 'now'/);
     });
 
     it('throws on a zone that does not exist (caller error, not plan data)', () => {

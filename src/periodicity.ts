@@ -65,11 +65,13 @@ const getDurationFromPeriodicityType = (
  * Feb 28 outside leap years). Returns an invalid DateTime when month or date
  * cannot form a date at all (month 0 or 13, date 0).
  */
-const occurrenceInMonth = (monthStart: DateTime, date: number): DateTime => {
-  if (!monthStart.isValid || !Number.isInteger(date) || date < 1) {
+const occurrenceInMonth = (monthStart: DateTime, date: unknown): DateTime => {
+  // Stored plans predate the API validators: numbers may arrive as strings.
+  const day = Number(date);
+  if (!monthStart.isValid || !Number.isInteger(day) || day < 1) {
     return DateTime.invalid('unusable occurrence');
   }
-  return monthStart.set({ day: Math.min(date, monthStart.daysInMonth ?? 0) });
+  return monthStart.set({ day: Math.min(day, monthStart.daysInMonth ?? 0) });
 };
 
 export const printPeriod = (p: PeriodicityPeriod): string => {
@@ -99,6 +101,9 @@ export const getPeriodicityPeriods = (
   /** Zone the period boundaries (midnights) are computed in. Never the device zone. */
   zone: string | Zone = DEFAULT_PERIODICITY_ZONE,
 ): PeriodicityPeriods => {
+  if (now && !now.isValid) {
+    throw new Error("Invalid 'now': " + String(now.invalidReason));
+  }
   now = (now || DateTime.now()).setZone(zone);
   if (!now.isValid) {
     throw new Error("Unsupported zone '" + String(zone) + "'.");
@@ -120,22 +125,29 @@ export const getPeriodicityPeriods = (
   }
 
   /** First day of the month each occurrence falls in for offset 0, paired with its date. */
-  const anchors: { monthStart: DateTime; date: number }[] = [];
-  for (const occurrence of periodicity.occurrences ?? []) {
-    const month: unknown =
-      periodicityType === 'yearly'
-        ? (occurrence as ApiPeriodicityYearlyOccurrence).month
-        : now.month;
+  const anchors: { monthStart: DateTime; date: unknown }[] = [];
+  const storedOccurrences: unknown = periodicity.occurrences;
+  for (const occurrence of Array.isArray(storedOccurrences)
+    ? (storedOccurrences as unknown[])
+    : []) {
+    if (typeof occurrence !== 'object' || occurrence === null) {
+      continue;
+    }
+    const { month: storedMonth, date } =
+      occurrence as Partial<ApiPeriodicityYearlyOccurrence>;
+    // Stored plans predate the API validators: months may be strings or missing,
+    // and fromObject throws on non-numeric units.
+    const month =
+      periodicityType === 'yearly' ? Number(storedMonth) : now.month;
     if (!Number.isInteger(month)) {
-      // Stored plans predate the API validators; fromObject throws on non-numeric units.
       continue;
     }
     const monthStart = DateTime.fromObject(
-      { year: now.year, month: month as number, day: 1 },
+      { year: now.year, month, day: 1 },
       { zone: now.zone },
     );
-    if (occurrenceInMonth(monthStart, occurrence.date).isValid) {
-      anchors.push({ monthStart, date: occurrence.date });
+    if (occurrenceInMonth(monthStart, date).isValid) {
+      anchors.push({ monthStart, date });
     }
   }
 
@@ -154,7 +166,12 @@ export const getPeriodicityPeriods = (
           date,
         ),
       )
-      .sort(sortDates);
+      .sort(sortDates)
+      // Two dates clamped to the same day (30 and 31 in February) are one occurrence,
+      // otherwise the second one becomes a period that is already missed.
+      .filter(
+        (occ, i, all) => i === 0 || occ.toMillis() !== all[i - 1].toMillis(),
+      );
 
     for (const occ of occurrences) {
       // startOf keeps the boundary at midnight in zones where DST jumps at 00:00.
