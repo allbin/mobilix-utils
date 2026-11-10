@@ -4,6 +4,7 @@ import {
   getPeriodicityPeriods,
   getPeriodStatus,
   PeriodicityPeriod,
+  PeriodicityPeriods,
 } from './periodicity';
 
 const defaultZone = Settings.defaultZone;
@@ -384,6 +385,9 @@ describe('getPeriodicityPeriods():', () => {
       expect(stored({})).toEqual(empty);
       expect(stored([null])).toEqual(empty);
       expect(stored([{ date: 'x' }])).toEqual(empty);
+      expect(stored([{ date: true }])).toEqual(empty);
+      expect(stored([{ date: [15] }])).toEqual(empty);
+      expect(stored([{ date: Symbol('15') }])).toEqual(empty);
 
       const textMonth = getPeriodicityPeriods(
         {

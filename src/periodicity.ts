@@ -65,10 +65,18 @@ const getDurationFromPeriodicityType = (
  * Feb 28 outside leap years). Returns an invalid DateTime when month or date
  * cannot form a date at all (month 0 or 13, date 0).
  */
+/** Integer from a stored value; numbers may arrive as strings from old plans. */
+const storedInteger = (value: unknown): number => {
+  const n =
+    typeof value === 'number' || typeof value === 'string'
+      ? Number(value)
+      : NaN;
+  return Number.isInteger(n) ? n : NaN;
+};
+
 const occurrenceInMonth = (monthStart: DateTime, date: unknown): DateTime => {
-  // Stored plans predate the API validators: numbers may arrive as strings.
-  const day = Number(date);
-  if (!monthStart.isValid || !Number.isInteger(day) || day < 1) {
+  const day = storedInteger(date);
+  if (!monthStart.isValid || Number.isNaN(day) || day < 1) {
     return DateTime.invalid('unusable occurrence');
   }
   return monthStart.set({ day: Math.min(day, monthStart.daysInMonth ?? 0) });
@@ -135,11 +143,10 @@ export const getPeriodicityPeriods = (
     }
     const { month: storedMonth, date } =
       occurrence as Partial<ApiPeriodicityYearlyOccurrence>;
-    // Stored plans predate the API validators: months may be strings or missing,
-    // and fromObject throws on non-numeric units.
+    // Stored plans predate the API validators; fromObject throws on non-numeric units.
     const month =
-      periodicityType === 'yearly' ? Number(storedMonth) : now.month;
-    if (!Number.isInteger(month)) {
+      periodicityType === 'yearly' ? storedInteger(storedMonth) : now.month;
+    if (Number.isNaN(month)) {
       continue;
     }
     const monthStart = DateTime.fromObject(
