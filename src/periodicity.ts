@@ -2,9 +2,18 @@ import {
   ApiPeriodicity,
   ApiPeriodicityYearlyOccurrence,
 } from '@allbin/mobilix-api-client';
-import { DateTime, Interval, DurationLike } from 'luxon';
+import { DateTime, Interval, DurationLike, Zone } from 'luxon';
 
 const sortDates = (a: DateTime, b: DateTime): number => (a > b ? 1 : -1);
+
+/** Zone every period boundary is computed in unless the caller passes one. */
+export const DEFAULT_PERIODICITY_ZONE = 'Europe/Stockholm';
+
+/** Result for a plan without a single usable occurrence: nothing to render, no active period. */
+const noPeriods = (): PeriodicityPeriods => ({
+  periods: [],
+  activePeriodIndex: -1,
+});
 
 export interface PeriodicityPeriod {
   /** Start and end of period. */
@@ -15,6 +24,7 @@ export interface PeriodicityPeriod {
 export interface PeriodicityPeriods {
   /** Sorted array of periods. */
   periods: PeriodicityPeriod[];
+  /** Index of the period containing "now", or -1 when the plan has no usable occurrences. */
   activePeriodIndex: number;
 }
 
@@ -49,6 +59,29 @@ const getDurationFromPeriodicityType = (
   }
 };
 
+/** Integer from a stored value; numbers may arrive as strings from old plans. */
+const storedInteger = (value: unknown): number => {
+  const n =
+    typeof value === 'number' || typeof value === 'string'
+      ? Number(value)
+      : NaN;
+  return Number.isInteger(n) ? n : NaN;
+};
+
+/**
+ * Start of the occurrence day in the given month. A day beyond the end of the
+ * month is clamped to the last day (31 means "last day of month", Feb 29 is
+ * Feb 28 outside leap years). Returns an invalid DateTime when month or date
+ * cannot form a date at all (month 0 or 13, date 0).
+ */
+const occurrenceInMonth = (monthStart: DateTime, date: unknown): DateTime => {
+  const day = storedInteger(date);
+  if (!monthStart.isValid || Number.isNaN(day) || day < 1) {
+    return DateTime.invalid('unusable occurrence');
+  }
+  return monthStart.set({ day: Math.min(day, monthStart.daysInMonth ?? 0) });
+};
+
 export const printPeriod = (p: PeriodicityPeriod): string => {
   const end =
     p.interval.end && p.interval.end.isValid
@@ -71,14 +104,24 @@ export const getPeriodicityPeriods = (
   previousCount = 1,
   /** The number of periods to calculate after the period containing "now". 0 will return only period containing "now". */
   nextCount = 0,
-  /** Defaults to DateTime.now. */
+  /** Defaults to DateTime.now. Converted into `zone` before use. */
   now?: DateTime,
+  /** Zone the period boundaries (midnights) are computed in. Never the device zone. */
+  zone: string | Zone = DEFAULT_PERIODICITY_ZONE,
 ): PeriodicityPeriods => {
-  now = now || DateTime.now();
+  if (now && !now.isValid) {
+    throw new Error("Invalid 'now': " + String(now.invalidReason));
+  }
+  now = (now || DateTime.now()).setZone(zone);
+  if (!now.isValid) {
+    throw new Error("Unsupported zone '" + String(zone) + "'.");
+  }
 
-  const plannedOccurrences: DateTime[] = [];
   const extendedPeriods: PeriodicityPeriod[] = [];
   const periodicityType = periodicity.type;
+  if (periodicityType !== 'yearly' && periodicityType !== 'monthly') {
+    return noPeriods();
+  }
 
   /** repeats; an array of values from -previousCount to +nextCount with a 0 in between. */
   const repeats = [0];
@@ -89,37 +132,57 @@ export const getPeriodicityPeriods = (
     repeats.push(i);
   }
 
-  for (const occurrence of periodicity.occurrences) {
-    const year = now.year;
+  /** First day of the month each occurrence falls in for offset 0, paired with its date. */
+  const anchors: { monthStart: DateTime; date: unknown }[] = [];
+  const storedOccurrences: unknown = periodicity.occurrences;
+  for (const occurrence of Array.isArray(storedOccurrences)
+    ? (storedOccurrences as unknown[])
+    : []) {
+    if (typeof occurrence !== 'object' || occurrence === null) {
+      continue;
+    }
+    const { month: storedMonth, date } =
+      occurrence as Partial<ApiPeriodicityYearlyOccurrence>;
+    // Stored plans predate the API validators; fromObject throws on non-numeric units.
     const month =
-      periodicityType === 'yearly'
-        ? (occurrence as ApiPeriodicityYearlyOccurrence).month
-        : now.month;
-    plannedOccurrences.push(
-      DateTime.fromObject(
-        {
-          year,
-          month: month,
-          day: occurrence.date,
-        },
-        { zone: now.zone },
-      ).startOf('day'),
+      periodicityType === 'yearly' ? storedInteger(storedMonth) : now.month;
+    if (Number.isNaN(month)) {
+      continue;
+    }
+    const monthStart = DateTime.fromObject(
+      { year: now.year, month, day: 1 },
+      { zone: now.zone },
     );
+    if (occurrenceInMonth(monthStart, date).isValid) {
+      anchors.push({ monthStart, date });
+    }
   }
 
-  if (plannedOccurrences.length === 0) {
-    throw new Error('Invalid/missing occurrences specified in plan.');
+  if (anchors.length === 0) {
+    return noPeriods();
   }
-
-  plannedOccurrences.sort(sortDates);
 
   for (const offset of repeats) {
-    for (const occurrence of plannedOccurrences) {
-      //Loop all repeats to add a range of occurrences guaranteed to contain the requested number of occurrences.
-      const occ = occurrence.plus(
-        getDurationFromPeriodicityType(periodicityType, offset),
+    //Loop all repeats to add a range of occurrences guaranteed to contain the requested number of occurrences.
+    const occurrences = anchors
+      .map(({ monthStart, date }) =>
+        occurrenceInMonth(
+          monthStart.plus(
+            getDurationFromPeriodicityType(periodicityType, offset),
+          ),
+          date,
+        ),
+      )
+      .sort(sortDates)
+      // Two dates clamped to the same day (30 and 31 in February) are one occurrence,
+      // otherwise the second one becomes a period that is already missed.
+      .filter(
+        (occ, i, all) => i === 0 || occ.toMillis() !== all[i - 1].toMillis(),
       );
-      let beginning = occ.minus({ days: duration });
+
+    for (const occ of occurrences) {
+      // startOf keeps the boundary at midnight in zones where DST jumps at 00:00.
+      let beginning = occ.minus({ days: duration }).startOf('day');
       const end = occ;
       const previous = extendedPeriods[extendedPeriods.length - 1];
       if (previous && previous.interval.end && previous.interval.start) {
@@ -138,28 +201,16 @@ export const getPeriodicityPeriods = (
         //period whose length is the actual length, all other periods will be clipped.
       }
 
-      const p = {
+      extendedPeriods.push({
         interval: Interval.fromDateTimes(beginning, end),
         occurrence: occ.endOf('day'),
-      };
-
-      if (!p.interval.isValid) {
-        console.log('occ', occ.toISO());
-        throw new Error(
-          `Invalid interval created: '${
-            beginning.toISO() ?? 'invalid start'
-          }' to '${end.toISO() ?? 'invalid end'}'`,
-        );
-      }
-      // console.log(printPeriod(p));
-      extendedPeriods.push(p);
+      });
     }
   }
 
   let nowBeginningIndex = -1;
 
   for (const p of extendedPeriods) {
-    // console.log('beg', beginning.toISO());
     if (p.interval.start && p.interval.start > now) {
       break;
     }
@@ -186,13 +237,25 @@ export const getPeriodicityPeriods = (
 
 /**
  * Utility for checking the status of a PeriodicityPeriod based on provided CheckIns.
+ *
+ * A check-in belongs to the period when it lies inside the interval or on the
+ * occurrence day itself. getPeriodicityPeriods extends each interval to the
+ * opening of the next window, so it normally contains the occurrence day; only
+ * when the window is longer than the gap between occurrences is the interval
+ * clipped to end at the start of that day. A due-day check-in is on time either
+ * way, and in the clipped case it also lies in the next period's interval.
  */
 export const getPeriodStatus = (
   period: PeriodicityPeriod,
   checkIns: CheckIn[],
 ): PeriodicityPeriodStatus => {
-  const filteredCheckIns = checkIns.filter((checkIn) =>
-    period.interval.contains(checkIn.timestamp),
+  const { start } = period.interval;
+  const filteredCheckIns = checkIns.filter(
+    (checkIn) =>
+      period.interval.contains(checkIn.timestamp) ||
+      (start !== null &&
+        start <= checkIn.timestamp &&
+        checkIn.timestamp <= period.occurrence),
   );
 
   if (filteredCheckIns.length === 0) {
